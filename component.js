@@ -15,8 +15,8 @@ var oop = require('iai-oop')
 ;
 
 
-// the name of the iai.json files
-var INFO_FNAME = 'iai.json';
+// the name of the iai-info.json files
+var INFO_FNAME = 'iai-info.json';
 
 core.Component = new oop.Interface( 'Component', ['load'] );
 
