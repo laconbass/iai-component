@@ -1,6 +1,6 @@
 {
   "name": "",
   "scope": "",
-  "index": {},
-  "dependencies": {}
+  "aliases": {},
+  "extend": "auto"
 }

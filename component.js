@@ -1,24 +1,84 @@
 var oop = require('iai-oop')
   , path = require('path')
   , util = require('util')
-  , fs = require('fs')
-  , core = {}
-  , error = function(){
-      throw new Error(  util.format.apply( {}, arguments )  );
-    }
-  , log = function(){
-      if( process.env.NODE_ENV == 'test' ) {
-        console.log();
-        console.log.apply( {}, arguments );
-      }
-    }
+  , f = util.format
+  , EventEmitter = require('events').EventEmitter
+  // hidde "already required" messages from this modules
+  , hiddenMods = ['iai-oop', 'iai-component'];
 ;
 
+// will store a reference to the first component created
+var root;
+// will store the component's cache
+var cached = {};
 
-// the name of the iai-info.json files
-var INFO_FNAME = 'iai-info.json';
+/**
+ * 
+ * Component factory method
+ *
+ */
 
-core.Component = new oop.Interface( 'Component', ['load'] );
+var core = module.exports = function( pathname ){
+  var id = require.resolve( pathname );
+  if ( !cached[ id ] ) {
+    cached[ id ] = iaiComponent.create( id );
+  }
+  return cached[ id ];
+}
+
+/**
+ * This emitter allows catching component logs and errors
+ * from anywere you like. To access it, use 
+ * `require('iai-component').notifier`
+ *
+ * @event 'log'
+ *   - message `String` the log message
+ * This event is emitted any time a component logs something
+ *
+ * @event 'error'
+ *   - error `Error` the error
+ * This event is emitted any time a component throws an error
+ *
+ * @event 'ready'
+ *   - id `String` the id of the component that triggered it
+ * This event is emitted once any time a component throws an error
+ */
+
+var notify = new EventEmitter();
+
+notify.log = function(){
+  this.emit( 'log', f.apply( {}, arguments ) );
+  return this;
+}
+notify.error = function(){
+  this.emit( 'error', new Error( f.apply({}, arguments) ) );
+}
+
+core.notifier = notify;
+
+
+// the name of the iai-info namespace on package.json files
+var INFO_NAME = core.INFO_NAME = 'iai-info';
+
+
+// default info constructor
+function defaultInfo(){};
+defaultInfo.prototype = require( './default-iai.json' );
+
+Component = new oop.Interface( 'Component', ['load'] );
+
+// helper to catch module not found errors
+// without hidding other errors
+function catchNotFound( tryfn, catchfn ){
+  try {
+    tryfn.call( this );
+  } catch(e) {
+    if( !~e.message.search(/cannot find module/i) ){
+      throw e;
+    }
+    catchfn.call( this, e );
+  }
+}
 
 /*
  * @prototype IaiComponent
@@ -28,10 +88,12 @@ core.Component = new oop.Interface( 'Component', ['load'] );
  *     @param id (String)
  */
 
-core.iaiComponent = oop.create(oop.Prototype, {
+iaiComponent = oop.create(oop.Prototype, {
 //  _loaded: [],
 //  index: {},
-  implement: [ core.Component ],
+//  id: 'unknown',
+//  info: {},
+  implement: [ Component ],
   /**
    * sets a property as data descriptor
    * meant for internal use
@@ -39,6 +101,25 @@ core.iaiComponent = oop.create(oop.Prototype, {
   _def: function( name, value ){
     Object.defineProperty( this, name, { value: value } );
   },
+  /**
+   * error & log notifiers
+   * meant for internal use
+   */
+  _log: function() {
+    notify.log( "%s: %s",
+                this.toString(),
+                f.apply( {}, arguments )
+    );
+  },
+  _err: function() {
+    notify.error( "%s error, %s",
+                  this.toString(),
+                  f.apply( {}, arguments )
+    );
+  },
+  /**
+   * Initializer
+   */
   init: function( pathname ) {
     if( arguments.length != 1 ) {
       throw ArityError( 'expecting exacly 1 argument' );
@@ -47,132 +128,189 @@ core.iaiComponent = oop.create(oop.Prototype, {
       throw TypeError( 'expecting param 1 to be a string' );
     }
 
-    this._def( 'id', path.resolve( pathname ) );
-
-    // iai component info default values
-    var i = require('./default-iai.json');
-
-    // extend the defaults with component-defined values
-    if( this.hasInfoFile() ) {
-      var info = this.requireInfoFile();
-      for( var k in info ){
-        i[k] = info[k];
-      }
+    this._def( 'id', require.resolve( pathname ) );
+    if( !root ) {
+      root = this;
+      notify
+        .log( 'initializing root component on:' )
+        .log( this.id )
+        .log( 'NOTE: "[module] already required" messages' )
+        .log( '      will be omitted for the following modules:' )
+      ;
+      for( var i in hiddenMods )
+        notify.log( '      * %s', hiddenMods[i] );
     }
+    // TODO 
+    // TODO  IS THIS NEED REALLY?
+    // TODO 
+    // TODO 
+    require( pathname )
+    // TODO 
+    // TODO  OF COURSE IT IS
+    // TODO 
+    // TODO 
 
-    // TODO validate the component info
-
-    this._def( 'info', i );
-    Object.defineProperty( this, '_loaded', { value: [], writable: true });
-    
-    // load dependencies
-    for( var n in i.dependencies ){
-      log( 'loading "%s" as <%s> dependency', n, this.info.name );
-      this.load( n );
-//      i.dependencies[n].forEach( dep.load, dep );
-    }
-
-    // set the global reference 
-    var dotted = String(i.scope).split('.')
-      , reference = global
+    // get the default iai-info values
+    // and the module package
+    var info = new defaultInfo()
+      , pkgdir = this.id
+      , pkg
     ;
-    while( !!i.scope && dotted.length ){
-      reference = reference[ dotted.shift() ];
-      part = dotted.shift();
+    // look up the directory tree until 
+    // a package.json file is found
+    while( !pkg && pkgdir != '/' ){
+      catchNotFound.call(this, function(){
+        pkg = require( path.join( pkgdir, 'package.json' ) );
+      }, function(){
+        pkgdir = path.dirname( pkgdir );
+      });
     }
-    reference[this.info.name] = this;
-
-//    this._def( 'info', info );
-
-    // set the accessor for component on desired scope
-    // if not defined on info, global is used
-    
-    //global[ info[name] ] = this;
-//    console.log('component', info[name], 'globalized');
-    log( 'component <%s> inited.', this.name );
-  },
-  /**
-   * Tells whether this component has info file
-   *   @returns bool
-   */
-  hasInfoFile: function(){
-    try {
-      this.requireInfoFile();
-      return true;
+    if( !pkg ) {
+      this._err( 'path is not within a node package' )
     }
-    catch(e) {
-      // ensure to catch only module not found errors
-      if( !~e.message.search(/cannot find module/i) ){
-        throw e;
+    info.pkg = pkg;
+    info.pkgdir = pkgdir;
+
+    // extend de default iai-info values
+    for( var k in pkg[ INFO_NAME ] ){
+      info[ k ] = pkg[ INFO_NAME ][ k ];
+    }
+
+    // TODO validate and store the component info
+    if( !info.name ) {
+      info.name = path.basename( this.id )
+                  .replace( path.extname( this.id ), '' )
+      ;
+      if ( info.name == 'index' ) {
+        info.name = path.basename( path.dirname( this.id ) );
       }
-      // component's iai.json file doesn't exist
-      return false;
     }
-  },
-  /**
-   * get the resolved path relative to this
-   */
-  pathTo: function( pathname ){
-    return path.resolve( path.dirname( this.id ), pathname );
-  },
-  /**
-   * get the iai.json file contents
-   * throws an error if info file doesn't exist
-   */
-  requireInfoFile: function(){
-    return require( this.pathTo( INFO_FNAME ) );
+    this._def( 'info', info );
+
+    // loading cache
+    Object.defineProperty( this, '_loaded', {
+      value: [], writable: true
+    });
+    // TODO childs ??
+    /* Object.defineProperty( this, '_childs', {
+      value: [], writable: true
+    });*/
+
+    // Is the package main module?
+    var is_main = RegExp( '^'
+      + path.join( this.info.pkgdir, this.info.pkg.main )
+    ).test( this.id );
+
+
+    // only main modules check required dependencies
+    // and allow setting a global reference
+    if( is_main ) {
+      this._log( 'is the package main module'
+               + ' and will check for dependencies' );
+    
+      for( var n in pkg.dependencies ){
+        catchNotFound.call(this, function(){
+          this.load( n );
+        }, function(e){
+          this._err( '%s ("%s") %s <%s> %s "%s" %s',
+                     "missing dependency", n,
+                     "for component", this.info.name,
+                     "with id", this.id, e.message
+          );
+        });
+      }
+    }
+
+    // set the global reference if it is desired
+    // avoid overwriting main components
+    if( !!info.scope && is_main ){
+      var dotted = info.scope.split( '.' )
+        , reference = global
+      ;
+      while( dotted.length > 1 ){
+        reference = reference[ dotted.shift() ];
+      }
+      dotted = dotted.shift();
+      if ( reference[ dotted ] !== undefined ) {
+        this._err( 'reference "%s" in use', info.scope );
+      }
+      else {
+        reference[ dotted ] = this;
+        this._log( 'reference set on %s', info.scope );
+      }
+    }
+
+    this._log( 'ready as %s.', is_main? 'main':'sub' );
   },
   /**
    * load sub-component
+   * throws an error if component is not found
    */
   load: function( cname ){
-    // skip loading if mod is already loaded
+    // TODO skip loading if require has cached it
+/*    var modid;
+    catchNotFound.call(this, function(){
+      modid = require.resolve( cname )
+    }, function(e){
+      this._log( 'require failed', require.main.filename );
+      modid = path.join( path.dirname( this.id ), cname );
+    });
+    if( require.cache[ modid ] ) {
+      // don't log "already required" when requiring
+      // iai-component or iai-oop
+      if( !~hiddenMods.indexOf( cname ) ){
+        this._log( '"%s" already required.', cname );
+      }
+      return this;
+    }*/
+
+    // skip loading if already loaded on component cache
     if( !!~this._loaded.indexOf( cname ) ) {
-       return this;
-    }
-    log( 'component <%s> loading "%s"', this.info.name, cname );
-    // check mod exists
-    if( !this.info.index.hasOwnProperty(cname) ) {
-      error( '"%s" not found on <%s> index', cname, this.info.name );
-    }
-    // require the desired component
-    var mod
-      , from = this.id;
-    ;
-    try {
-      // first try a local require from the component's path
-      mod = require(  this.pathTo( this.index[name] )  );
-    } catch(e) {
-      // if module not found, try requiring from main module
-      if( !~e.message.search(/cannot find module/i) ) {
-        throw e;
-      }
-      from = require.main.id;
-      mod = require.main.require( this.index[name] )
-    }
-    log( '<%s> loaded <%s> from <%s> and it is%s an IaiComponent'
-        , this.name, name, from, mod instanceof IaiComponent? '':"n't"
-    );
-    throw "WHAT TO DO NOW?";
-    // store the full module if module is a component too
-    if( mod instanceof IaiComponent ) {
-      this[name] = mod;
+      this._log( '"%s" already loaded.', cname );
+      return this;
     } else {
-      // extend the current component elsecase
-      for( var fname in mod ) {
-        this[fname] = mod[fname];
+      this._loaded.push( cname );
+    }
+
+    this._log( 'loading "%s"...', cname );
+
+    // check if component name is an alias
+    var is_alias = false;
+    if( this.info.aliases.hasOwnProperty(cname) ) {
+      cname = this.info.aliases[ cname ];
+      is_alias = true;
+    }
+
+    // require the desired component
+    var mod = require.cache[ this.id ].require( cname );
+
+    // extend the current component if desired
+    var loginfo = "but did nothing with it";
+    if ( this.info.extend == 'always'
+      || this.info.extend == 'auto' && is_alias
+    ){
+      if ( iaiComponent.isPrototypeOf( mod ) ) {
+        loginfo = f( "and stored it as '%s'", mod.info.name);
+        this[ mod.info.name ] = mod;
+      }
+      else {
+        loginfo = "and extends from it";
+        for( var fname in mod ) {
+          this[fname] = mod[fname];
+        }
       }
     }
-    this._loaded.push( name );
+
+    this._log( 'has loaded "%s" %s.', cname, loginfo );
+
     return this;
+  },
+  toString: function() {
+    return f( 'Component <%s%s>',
+              this.info.name || this.id,
+              ( '@' + this.info.pkg.name ) || ''
+    );
   }
 });
 
-
-/**
- * Helper functions
- * Component factory method 
- *
- */
-
-module.exports = oop.factory( core.iaiComponent );
+module.exports.Component = iaiComponent;
