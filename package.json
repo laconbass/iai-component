@@ -1,9 +1,12 @@
 {
   "name": "iai-component"
-  ,"version": "0.0.1"
+  ,"version": "0.0.2"
   ,"description": "Provides an API that helps developing modular components for iai."
   ,"main": "component.js"
   ,"repository": {
     "type": "git", "url": "https://github.com/laconbass/iai-component.git"
+  }
+  ,"dependencies": {
+    "iai-oop": ">=0.0.4"
   }
 }

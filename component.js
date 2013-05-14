@@ -88,12 +88,12 @@ function catchNotFound( tryfn, catchfn ){
  *     @param id (String)
  */
 
-iaiComponent = oop.create(oop.Prototype, {
+iaiComponent = oop.create( oop.GenericFactory, {
 //  _loaded: [],
 //  index: {},
 //  id: 'unknown',
 //  info: {},
-  implement: [ Component ],
+  _implement: [ Component ],
   /**
    * sets a property as data descriptor
    * meant for internal use
