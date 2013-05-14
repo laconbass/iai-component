@@ -285,11 +285,12 @@ iaiComponent = oop.create(oop.Prototype, {
     var mod = require.cache[ this.id ].require( cname );
 
     // extend the current component if desired
+    var is_cmp = iaiComponent.isPrototypeOf( mod );
     var loginfo = "but did nothing with it";
     if ( this.info.extend == 'always'
-      || this.info.extend == 'auto' && is_alias
+      || this.info.extend == 'auto' && ( is_alias || is_cmp )
     ){
-      if ( iaiComponent.isPrototypeOf( mod ) ) {
+      if ( is_cmp ) {
         loginfo = f( "and stored it as '%s'", mod.info.name);
         this[ mod.info.name ] = mod;
       }
