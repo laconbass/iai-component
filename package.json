@@ -1,6 +1,6 @@
 {
   "name": "iai-component"
-  ,"version": "0.0.2-rc"
+  ,"version": "0.0.2"
   ,"description": "Provides an API that helps developing modular components for iai."
   ,"main": "component.js"
   ,"repository": {
