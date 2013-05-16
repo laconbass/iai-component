@@ -112,7 +112,7 @@ iaiComponent = oop.create( oop.GenericFactory, {
     );
   },
   _err: function() {
-    notify.error( "%s error, %s",
+    notify.error( "(%s) %s",
                   this.toString(),
                   f.apply( {}, arguments )
     );
@@ -236,11 +236,27 @@ iaiComponent = oop.create( oop.GenericFactory, {
       }
       else {
         reference[ dotted ] = this;
-        this._log( 'reference set on %s', info.scope );
+        this._log( 'global reference set on %s', info.scope );
       }
     }
 
-    this._log( 'ready as %s.', is_main? 'main':'sub' );
+    this._log( 'ready as %smodule.', is_main? 'main ':'sub-' );
+  },
+  /**
+   * require a module from component's module
+   * throws an error if module is not found
+   */
+  require: function( mod_name ) {
+    if( this.info.aliases.hasOwnProperty( mod_name ) ) {
+      mod_name = this.info.aliases[ mod_name ];
+    }
+    var mod;
+    catchNotFound.call(this, function(){
+      mod = require.cache[ this.id ].require( mod_name );
+    }, function(e) {
+      this._err( e.message );
+    });
+    return mod;
   },
   /**
    * load sub-component
@@ -274,18 +290,13 @@ iaiComponent = oop.create( oop.GenericFactory, {
 
     this._log( 'loading "%s"...', cname );
 
-    // check if component name is an alias
-    var is_alias = false;
-    if( this.info.aliases.hasOwnProperty(cname) ) {
-      cname = this.info.aliases[ cname ];
-      is_alias = true;
-    }
-
     // require the desired component
-    var mod = require.cache[ this.id ].require( cname );
+    var mod = this.require( cname );
 
     // extend the current component if desired
-    var is_cmp = iaiComponent.isPrototypeOf( mod );
+    var is_cmp = iaiComponent.isPrototypeOf( mod )
+      , is_alias = this.info.aliases.hasOwnProperty( cname );
+    ;
     var loginfo = "but did nothing with it";
     if ( this.info.extend == 'always'
       || this.info.extend == 'auto' && ( is_alias || is_cmp )
